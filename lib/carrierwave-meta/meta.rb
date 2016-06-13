@@ -7,13 +7,8 @@ module CarrierWave
 
     included do
       include CarrierWave::ModelDelegateAttribute
-      include CarrierWave::MimeTypes
 
-      set_content_type(true)
-
-      after :retrieve_from_cache, :set_content_type
       after :retrieve_from_cache, :call_store_meta
-      after :retrieve_from_store, :set_content_type unless storage.name =~ /Fog/
       after :retrieve_from_store, :call_store_meta
 
       model_delegate_attribute :content_type, ''
@@ -57,14 +52,14 @@ module CarrierWave
     end
 
     def get_dimensions
+      is_image = file.content_type =~ /image/
+      is_pdf =
+        file.content_type =~ /postscript|pdf/ &&
+        CarrierWave::Meta.ghostscript_enabled
+
+      is_dimensionable = is_image || is_pdf
+
       [].tap do |size|
-        is_image = file.content_type =~ /image/
-        is_pdf =
-          file.content_type =~ /postscript|pdf/ &&
-          CarrierWave::Meta.ghostscript_enabled
-
-        is_dimensionable = is_image || is_pdf
-
         manipulate! do |img|
           if processor?(:rmagick, img) && is_dimensionable
             size << img.columns
@@ -85,6 +80,10 @@ module CarrierWave
         end
       end
     rescue CarrierWave::ProcessingError
+      return unless storage.class.name =~ /Fog/
+      return unless is_image
+      img = ::Magick::Image.from_blob(file.read).shift
+      [img.columns, img.rows]
     end
 
     def processor?(processor, img)
